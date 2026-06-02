@@ -1,0 +1,7 @@
+# Local / not part of submission
+node_modules/
+.next/
+out/
+.env*.local
+.DS_Store
+*.log
