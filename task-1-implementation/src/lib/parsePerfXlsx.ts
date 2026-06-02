@@ -416,6 +416,39 @@ export function primaryConfig(sweep: PerfSweep) {
   return sweep.configs.find((c) => c.gMethod === "G1") ?? sweep.configs[0];
 }
 
+/** Distinct batch sizes available across a set of sweeps, ascending. */
+export function availableBatchSizes(sweeps: PerfSweep[]): number[] {
+  const set = new Set<number>();
+  for (const s of sweeps) {
+    for (const c of s.configs) {
+      if (c.batchSize > 0) set.add(c.batchSize);
+    }
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+/**
+ * Config row for a chosen operating point.
+ * - batchSize "min": lowest batch (best per-user latency) — the customer default.
+ * - a number: that exact batch if present, else the closest available.
+ */
+export function configAtBatch(
+  sweep: PerfSweep,
+  batchSize: number | "min"
+): SummaryConfig {
+  if (!sweep.configs.length) return primaryConfig(sweep);
+  const sorted = [...sweep.configs].sort((a, b) => a.batchSize - b.batchSize);
+  if (batchSize === "min") return sorted[0];
+  const exact = sorted.find((c) => c.batchSize === batchSize);
+  if (exact) return exact;
+  // closest available batch size
+  return sorted.reduce((best, c) =>
+    Math.abs(c.batchSize - batchSize) < Math.abs(best.batchSize - batchSize)
+      ? c
+      : best
+  );
+}
+
 export function passesThreshold(
   cfg: SummaryConfig,
   thresholds: { minGenSpeed: number; maxTtft: number }

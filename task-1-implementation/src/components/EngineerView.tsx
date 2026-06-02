@@ -2,8 +2,10 @@
 
 import type { PerfSweep } from "@/lib/types";
 import { fmtNum, workloadLabel } from "@/lib/format";
-import { profileLabel } from "@/lib/profiles";
+import { profileLabelWithWorkload } from "@/lib/profiles";
 import { filterSweeps, uniqueModelIds } from "@/lib/compare";
+import { configAtBatch } from "@/lib/parsePerfXlsx";
+import { boxesFor, costProxyFor, detectAnomalies } from "@/lib/insights";
 
 type Props = {
   sweeps: PerfSweep[];
@@ -33,16 +35,14 @@ export function EngineerView({
   const models = uniqueModelIds(sweeps);
 
   const filtered = filterSweeps(sweeps, selectedProfile, selectedModel);
-  const showLegacyCols = filtered.some((s) =>
-    s.configs.some((c) => c.gMethod || c.targetPromptG)
-  );
 
   return (
     <div className="space-y-6">
       <section className="rounded-xl border border-cerebras-border bg-cerebras-panel p-5">
         <h2 className="text-lg font-semibold text-white">Engineer / sanity-check view</h2>
         <p className="mt-1 text-sm text-slate-400">
-          Full config matrix, G×context speed table, and simulation variance flags.
+          Full config matrix with derived hardware/cost, automated projection
+          sanity-checks, and (when present) G×context and simulation detail.
         </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="text-sm text-slate-300">
@@ -58,7 +58,7 @@ export function EngineerView({
               <option value="all">All profiles</option>
               {profiles.map((p) => (
                 <option key={p} value={p}>
-                  {profileLabel(p)}
+                  Profile {p}
                 </option>
               ))}
             </select>
@@ -85,11 +85,14 @@ export function EngineerView({
       </section>
 
       {filtered.map((sweep) => {
-        const anomalies = sweep.simSheets.flatMap((sim) =>
+        const showLegacyCols = sweep.configs.some(
+          (c) => c.gMethod || c.targetPromptG
+        );
+        const anomalies = detectAnomalies(sweep);
+
+        const simAnomalies = sweep.simSheets.flatMap((sim) =>
           sim.rows
-            .filter(
-              (r) => r.throughputSpread > 0.12 || r.ttftMean > 1.5
-            )
+            .filter((r) => r.throughputSpread > 0.12 || r.ttftMean > 1.5)
             .map((r) => ({
               sim: sim.label,
               concurrency: r.concurrency,
@@ -98,9 +101,10 @@ export function EngineerView({
             }))
         );
 
-        const gmslValues = sweep.gmsl?.rows.flatMap((r) =>
-          r.speeds.filter((v): v is number => v != null)
-        ) ?? [];
+        const gmslValues =
+          sweep.gmsl?.rows.flatMap((r) =>
+            r.speeds.filter((v): v is number => v != null)
+          ) ?? [];
         const gMin = Math.min(...gmslValues, 0);
         const gMax = Math.max(...gmslValues, 1);
 
@@ -114,7 +118,7 @@ export function EngineerView({
                 Model {sweep.modelId}
                 {sweep.profile != null && (
                   <span className="ml-2 text-base font-normal text-slate-400">
-                    · {profileLabel(sweep.profile)}
+                    · {profileLabelWithWorkload(sweep.profile, sweep.workload)}
                   </span>
                 )}
               </h3>
@@ -123,13 +127,43 @@ export function EngineerView({
               </p>
             </header>
 
-            {anomalies.length > 0 && (
+            {/* Summary-derived sanity checks — work on the June single-sheet data */}
+            {anomalies.length > 0 ? (
+              <div className="space-y-2 rounded-lg border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm">
+                <strong className="text-amber-300">
+                  Projection sanity checks ({anomalies.length})
+                </strong>
+                <ul className="space-y-1 text-amber-100">
+                  {anomalies.map((a, idx) => (
+                    <li key={idx}>
+                      <span
+                        className={
+                          a.severity === "warn"
+                            ? "font-semibold text-amber-300"
+                            : "font-semibold text-sky-300"
+                        }
+                      >
+                        {a.label}:
+                      </span>{" "}
+                      {a.detail}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-emerald-800/50 bg-emerald-950/20 px-4 py-2 text-sm text-emerald-300">
+                No projection anomalies detected (throughput scales with batch,
+                latency consistent, cache reconciles).
+              </div>
+            )}
+
+            {simAnomalies.length > 0 && (
               <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
-                <strong className="text-amber-300">Flags:</strong>{" "}
-                {anomalies
+                <strong className="text-amber-300">Simulation flags:</strong>{" "}
+                {simAnomalies
                   .map(
                     (a) =>
-                      `${a.sim} @ c=${a.concurrency}: throughput spread ${(a.spread * 100).toFixed(0)}%` +
+                      `${a.sim} @ c=${a.concurrency}: spread ${(a.spread * 100).toFixed(0)}%` +
                       (a.ttft > 1.5 ? `, TTFT ${a.ttft.toFixed(2)}s` : "")
                   )
                   .join("; ")}
@@ -139,8 +173,11 @@ export function EngineerView({
             <div className="overflow-x-auto">
               <h4 className="mb-2 text-sm font-semibold text-slate-300">
                 Summary configurations
+                <span className="ml-2 font-normal text-slate-500">
+                  (boxes = throughput ÷ throughput/box; cost = boxes per Mtok/s)
+                </span>
               </h4>
-              <table className="w-full min-w-[900px] text-left text-xs">
+              <table className="w-full min-w-[960px] text-left text-xs">
                 <thead className="text-slate-500">
                   <tr>
                     {showLegacyCols && <th className="pb-1 pr-2">G</th>}
@@ -148,6 +185,8 @@ export function EngineerView({
                     <th className="pb-1 pr-2">Batch</th>
                     {showLegacyCols && <th className="pb-1 pr-2">Conc.</th>}
                     <th className="pb-1 pr-2">Throughput</th>
+                    <th className="pb-1 pr-2">Boxes</th>
+                    <th className="pb-1 pr-2">Cost/Mtok</th>
                     <th className="pb-1 pr-2">Uncached</th>
                     <th className="pb-1 pr-2">Cached</th>
                     <th className="pb-1 pr-2">TTFT</th>
@@ -156,26 +195,38 @@ export function EngineerView({
                   </tr>
                 </thead>
                 <tbody className="font-mono text-slate-200">
-                  {sweep.configs.map((c, i) => (
-                    <tr key={i} className="border-t border-cerebras-border/40">
-                      {showLegacyCols && (
-                        <td className="py-1 pr-2">{c.targetPromptG}</td>
-                      )}
-                      {showLegacyCols && (
-                        <td className="py-1 pr-2">{c.gMethod}</td>
-                      )}
-                      <td className="py-1 pr-2">{c.batchSize}</td>
-                      {showLegacyCols && (
-                        <td className="py-1 pr-2">{c.concurrency}</td>
-                      )}
-                      <td className="py-1 pr-2">{fmtNum(c.throughput, 0)}</td>
-                      <td className="py-1 pr-2">{fmtNum(c.uncachedThroughput, 0)}</td>
-                      <td className="py-1 pr-2">{fmtNum(c.cachedThroughput, 0)}</td>
-                      <td className="py-1 pr-2">{c.ttft.toFixed(2)}</td>
-                      <td className="py-1 pr-2">{fmtNum(c.genSpeed, 0)}</td>
-                      <td className="py-1">{fmtNum(c.rpm, 1)}</td>
-                    </tr>
-                  ))}
+                  {[...sweep.configs]
+                    .sort((a, b) => a.batchSize - b.batchSize)
+                    .map((c, i) => {
+                      const boxes = boxesFor(c);
+                      const cost = costProxyFor(c);
+                      return (
+                        <tr key={i} className="border-t border-cerebras-border/40">
+                          {showLegacyCols && (
+                            <td className="py-1 pr-2">{c.targetPromptG}</td>
+                          )}
+                          {showLegacyCols && (
+                            <td className="py-1 pr-2">{c.gMethod}</td>
+                          )}
+                          <td className="py-1 pr-2">{c.batchSize}</td>
+                          {showLegacyCols && (
+                            <td className="py-1 pr-2">{c.concurrency}</td>
+                          )}
+                          <td className="py-1 pr-2">{fmtNum(c.throughput, 0)}</td>
+                          <td className="py-1 pr-2 text-cerebras-orange">
+                            {boxes != null ? fmtNum(boxes, 1) : "—"}
+                          </td>
+                          <td className="py-1 pr-2">
+                            {cost != null ? fmtNum(cost, 1) : "—"}
+                          </td>
+                          <td className="py-1 pr-2">{fmtNum(c.uncachedThroughput, 0)}</td>
+                          <td className="py-1 pr-2">{fmtNum(c.cachedThroughput, 0)}</td>
+                          <td className="py-1 pr-2">{c.ttft.toFixed(2)}</td>
+                          <td className="py-1 pr-2">{fmtNum(c.genSpeed, 0)}</td>
+                          <td className="py-1">{fmtNum(c.rpm, 1)}</td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
@@ -204,9 +255,7 @@ export function EngineerView({
                           <td
                             key={j}
                             className="p-1 text-center font-mono text-white"
-                            style={{
-                              backgroundColor: heatColor(v, gMin, gMax),
-                            }}
+                            style={{ backgroundColor: heatColor(v, gMin, gMax) }}
                           >
                             {v != null ? v : "—"}
                           </td>
@@ -263,7 +312,7 @@ export function EngineerView({
       {filtered.length > 1 && (
         <section className="overflow-x-auto rounded-xl border border-cerebras-border bg-cerebras-panel p-5">
           <h3 className="mb-3 font-semibold text-white">
-            Cross-model throughput (primary G1 row)
+            Cross-model comparison (lowest-batch operating point)
           </h3>
           <table className="w-full text-sm">
             <thead className="text-slate-400">
@@ -271,32 +320,51 @@ export function EngineerView({
                 <th className="pb-2 text-left">Model</th>
                 <th className="pb-2 text-left">Profile</th>
                 <th className="pb-2 text-right">Throughput</th>
+                <th className="pb-2 text-right">Boxes</th>
+                <th className="pb-2 text-right">Cost/Mtok</th>
                 <th className="pb-2 text-right">Gen/user</th>
                 <th className="pb-2 text-right">TTFT</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((s) => {
-                const c =
-                  s.configs.find((x) => x.gMethod === "G1") ?? s.configs[0];
-                return (
-                  <tr key={s.id} className="border-t border-cerebras-border/60">
-                    <td className="py-2">{s.modelId}</td>
-                    <td className="py-2">{s.profile ?? "—"}</td>
-                    <td className="py-2 text-right font-mono">
-                      {fmtNum(c.throughput, 0)}
-                    </td>
-                    <td className="py-2 text-right font-mono">
-                      {fmtNum(c.genSpeed, 0)}
-                    </td>
-                    <td className="py-2 text-right font-mono">
-                      {c.ttft.toFixed(2)}s
-                    </td>
-                  </tr>
-                );
-              })}
+              {[...filtered]
+                .sort((a, b) => {
+                  const ba = boxesFor(configAtBatch(a, "min")) ?? Infinity;
+                  const bb = boxesFor(configAtBatch(b, "min")) ?? Infinity;
+                  return ba - bb;
+                })
+                .map((s) => {
+                  const c = configAtBatch(s, "min");
+                  const boxes = boxesFor(c);
+                  const cost = costProxyFor(c);
+                  return (
+                    <tr key={s.id} className="border-t border-cerebras-border/60">
+                      <td className="py-2">{s.modelId}</td>
+                      <td className="py-2">{s.profile ?? "—"}</td>
+                      <td className="py-2 text-right font-mono">
+                        {fmtNum(c.throughput, 0)}
+                      </td>
+                      <td className="py-2 text-right font-mono text-cerebras-orange">
+                        {boxes != null ? fmtNum(boxes, 1) : "—"}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {cost != null ? fmtNum(cost, 1) : "—"}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {fmtNum(c.genSpeed, 0)}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {c.ttft.toFixed(2)}s
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
+          <p className="mt-2 text-xs text-slate-500">
+            Sorted by hardware footprint (boxes). Fewer boxes + higher gen speed
+            ⇒ smaller / cheaper-to-serve model.
+          </p>
         </section>
       )}
     </div>

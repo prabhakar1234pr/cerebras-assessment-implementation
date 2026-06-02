@@ -3,13 +3,17 @@
 import { useState } from "react";
 import type { CustomerThresholds, PerfSweep } from "@/lib/types";
 import { fmtNum, workloadLabel } from "@/lib/format";
-import { passesThreshold, primaryConfig } from "@/lib/parsePerfXlsx";
-import { profileLabel } from "@/lib/profiles";
+import {
+  passesThreshold,
+  configAtBatch,
+  availableBatchSizes,
+} from "@/lib/parsePerfXlsx";
+import { profileLabelWithWorkload } from "@/lib/profiles";
+import { boxesFor, costProxyFor, fullResponseSec } from "@/lib/insights";
 import {
   filterSweeps,
   formatDelta,
   pctDelta,
-  refConfig,
   uniqueModelIds,
 } from "@/lib/compare";
 
@@ -49,6 +53,7 @@ export function CustomerView({
   const [referenceId, setReferenceId] = useState<string | null>(
     initialReferenceId
   );
+  const [batch, setBatch] = useState<number | "min">("min");
 
   const profiles = [
     ...new Set(sweeps.map((s) => s.profile).filter((p): p is number => p != null)),
@@ -56,7 +61,12 @@ export function CustomerView({
 
   const models = uniqueModelIds(sweeps);
   const filtered = filterSweeps(sweeps, selectedProfile, selectedModel);
-  const refCfg = refConfig(sweeps, referenceId);
+  const batchSizes = availableBatchSizes(filtered);
+
+  const refSweep = referenceId
+    ? filtered.find((s) => s.id === referenceId)
+    : null;
+  const refCfg = refSweep ? configAtBatch(refSweep, batch) : null;
 
   const comparisonOptions = filtered.map((s) => ({
     id: s.id,
@@ -68,8 +78,8 @@ export function CustomerView({
       <section className="rounded-xl border border-cerebras-border bg-cerebras-panel p-5">
         <h2 className="text-lg font-semibold text-white">Customer / PM view</h2>
         <p className="mt-1 text-sm text-slate-400">
-          Go/no-go against your workload SLA — comparable tok/s and latency, not raw
-          spreadsheet columns.
+          Go/no-go against your workload SLA — comparable tok/s, latency, and
+          relative cost, not raw spreadsheet columns.
         </p>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
@@ -103,6 +113,24 @@ export function CustomerView({
             />
           </label>
           <label className="text-sm text-slate-300">
+            Concurrency (batch size)
+            <select
+              className="mt-1 w-full rounded-lg border border-cerebras-border bg-cerebras-dark px-3 py-2"
+              value={String(batch)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setBatch(v === "min" ? "min" : Number(v));
+              }}
+            >
+              <option value="min">Lowest (best latency)</option>
+              {batchSizes.map((b) => (
+                <option key={b} value={b}>
+                  Batch {b}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm text-slate-300">
             Traffic profile filter
             <select
               className="mt-1 w-full rounded-lg border border-cerebras-border bg-cerebras-dark px-3 py-2"
@@ -115,7 +143,7 @@ export function CustomerView({
               <option value="all">All uploaded profiles</option>
               {profiles.map((p) => (
                 <option key={p} value={p}>
-                  {profileLabel(p)}
+                  Profile {p}
                 </option>
               ))}
             </select>
@@ -139,6 +167,11 @@ export function CustomerView({
             </select>
           </label>
         </div>
+        <p className="mt-3 text-xs text-slate-500">
+          &ldquo;Boxes&rdquo; = Cerebras hardware units implied by the projection
+          (throughput ÷ throughput-per-box) — a proxy for relative serving cost.
+          Higher concurrency raises throughput/RPM but usually lowers per-user gen speed.
+        </p>
       </section>
 
       {filtered.length === 0 ? (
@@ -147,8 +180,10 @@ export function CustomerView({
         <>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filtered.map((sweep) => {
-              const cfg = primaryConfig(sweep);
+              const cfg = configAtBatch(sweep, batch);
               const pass = passesThreshold(cfg, thresholds);
+              const boxes = boxesFor(cfg);
+              const full = fullResponseSec(cfg);
               return (
                 <article
                   key={sweep.id}
@@ -164,10 +199,10 @@ export function CustomerView({
                     <StatusBadge pass={pass} />
                   </div>
                   <p className="mt-2 text-sm text-slate-300">
-                    {profileLabel(sweep.profile)}
+                    {profileLabelWithWorkload(sweep.profile, sweep.workload)}
                   </p>
                   <p className="mt-1 text-sm text-slate-400">
-                    {workloadLabel(sweep.workload)}
+                    {workloadLabel(sweep.workload)} · batch {cfg.batchSize}
                   </p>
                   <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <div>
@@ -191,6 +226,18 @@ export function CustomerView({
                     <div>
                       <dt className="text-slate-500">RPM</dt>
                       <dd className="font-mono text-white">{fmtNum(cfg.rpm, 1)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Boxes (cost proxy)</dt>
+                      <dd className="font-mono text-cerebras-orange">
+                        {boxes != null ? fmtNum(boxes, 1) : "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Full response</dt>
+                      <dd className="font-mono text-white">
+                        {full != null ? `${full.toFixed(2)}s` : "—"}
+                      </dd>
                     </div>
                   </dl>
                 </article>
@@ -218,7 +265,7 @@ export function CustomerView({
                   </select>
                 </label>
               </div>
-              <table className="w-full min-w-[720px] text-left text-sm">
+              <table className="w-full min-w-[820px] text-left text-sm">
                 <thead className="text-slate-400">
                   <tr>
                     <th className="pb-2 pr-4">Model</th>
@@ -228,6 +275,7 @@ export function CustomerView({
                     <th className="pb-2 pr-4">TTFT</th>
                     {refCfg && <th className="pb-2 pr-4">Δ TTFT vs ref</th>}
                     <th className="pb-2 pr-4">Throughput</th>
+                    <th className="pb-2 pr-4">Boxes</th>
                     <th className="pb-2">SLA</th>
                   </tr>
                 </thead>
@@ -235,12 +283,14 @@ export function CustomerView({
                   {[...filtered]
                     .sort(
                       (a, b) =>
-                        primaryConfig(b).genSpeed - primaryConfig(a).genSpeed
+                        configAtBatch(b, batch).genSpeed -
+                        configAtBatch(a, batch).genSpeed
                     )
                     .map((sweep) => {
-                      const cfg = primaryConfig(sweep);
+                      const cfg = configAtBatch(sweep, batch);
                       const pass = passesThreshold(cfg, thresholds);
                       const isRef = sweep.id === referenceId;
+                      const boxes = boxesFor(cfg);
                       return (
                         <tr
                           key={sweep.id}
@@ -280,6 +330,9 @@ export function CustomerView({
                           )}
                           <td className="py-2 pr-4 font-mono">
                             {fmtNum(cfg.throughput, 0)}
+                          </td>
+                          <td className="py-2 pr-4 font-mono text-cerebras-orange">
+                            {boxes != null ? fmtNum(boxes, 1) : "—"}
                           </td>
                           <td className="py-2">
                             <StatusBadge pass={pass} />

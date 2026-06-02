@@ -4,8 +4,8 @@
 
 Next.js app that turns Cerebras perf projection `.xlsx` sweeps into two audience views:
 
-- **Customer / PM** — workload summary, go/no-go vs configurable SLA (min gen speed, max TTFT), multi-model comparison
-- **Engineer** — full Summary config matrix, G_MSL heatmap, simulation variance flags, cross-model table
+- **Customer / PM** — workload summary, go/no-go vs configurable SLA (min gen speed, max TTFT), selectable concurrency (batch size), per-model boxes/cost proxy, multi-model comparison
+- **Engineer** — full Summary config matrix with derived boxes & cost-per-Mtok, automated projection sanity-checks (throughput-vs-batch monotonicity, gen-speed cliffs, TTFT consistency, cache reconciliation), plus G_MSL heatmap & simulation tables when those optional sheets are present, and a cross-model footprint table
 
 Parsing is driven by workbook shape, not a hardcoded model list (e.g. you can upload Model L).
 
@@ -34,7 +34,8 @@ Open [http://localhost:3000](http://localhost:3000).
 - Pre-loaded Models A–K on first visit
 - Drag-and-drop, file, and folder upload
 - Parse report (per-file errors and warnings)
-- Reference model for % delta in the comparison table (Customer view)
+- Customer view: configurable SLA, concurrency/batch selector, boxes (cost proxy) and full-response-time per model, reference-model % deltas
+- Engineer view: derived boxes & cost-per-Mtok columns, and automated projection sanity-checks computed from the Summary sheet alone (so they work on the June single-sheet data, not just legacy workbooks)
 - Comparison charts (gen speed, TTFT, throughput when 2+ models loaded)
 - Export CSV and shareable URL (compressed state in the link)
 
