@@ -1,4 +1,4 @@
-import { PerfDashboard } from "@/components/PerfDashboard";
+import { HomeDashboard } from "@/components/HomeDashboard";
 
 export default function Home() {
   return (
@@ -17,7 +17,7 @@ export default function Home() {
           </p>
         </div>
       </header>
-      <PerfDashboard />
+      <HomeDashboard />
     </main>
   );
 }

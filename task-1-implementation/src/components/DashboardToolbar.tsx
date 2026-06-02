@@ -2,24 +2,26 @@
 
 import { useState } from "react";
 import type { PerfSweep } from "@/lib/types";
-import { filterByProfile } from "@/lib/compare";
+import { filterSweeps } from "@/lib/compare";
 import { buildComparisonCsv, downloadCsv } from "@/lib/exportCsv";
 import { buildShareUrl, type DashboardShareState } from "@/lib/shareState";
 
 type Props = {
   sweeps: PerfSweep[];
   selectedProfile: number | "all";
+  selectedModel: string | "all";
   shareState: DashboardShareState;
 };
 
 export function DashboardToolbar({
   sweeps,
   selectedProfile,
+  selectedModel,
   shareState,
 }: Props) {
   const [shareMsg, setShareMsg] = useState<string | null>(null);
 
-  const filtered = filterByProfile(sweeps, selectedProfile);
+  const filtered = filterSweeps(sweeps, selectedProfile, selectedModel);
 
   const exportCsv = () => {
     const csv = buildComparisonCsv(filtered, null);

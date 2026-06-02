@@ -6,10 +6,11 @@ import { fmtNum, workloadLabel } from "@/lib/format";
 import { passesThreshold, primaryConfig } from "@/lib/parsePerfXlsx";
 import { profileLabel } from "@/lib/profiles";
 import {
-  filterByProfile,
+  filterSweeps,
   formatDelta,
   pctDelta,
   refConfig,
+  uniqueModelIds,
 } from "@/lib/compare";
 
 type Props = {
@@ -18,6 +19,8 @@ type Props = {
   onThresholds: (t: CustomerThresholds) => void;
   selectedProfile: number | "all";
   onProfile: (p: number | "all") => void;
+  selectedModel: string | "all";
+  onModel: (m: string | "all") => void;
   initialReferenceId?: string | null;
 };
 
@@ -39,6 +42,8 @@ export function CustomerView({
   onThresholds,
   selectedProfile,
   onProfile,
+  selectedModel,
+  onModel,
   initialReferenceId = null,
 }: Props) {
   const [referenceId, setReferenceId] = useState<string | null>(
@@ -49,7 +54,8 @@ export function CustomerView({
     ...new Set(sweeps.map((s) => s.profile).filter((p): p is number => p != null)),
   ].sort((a, b) => a - b);
 
-  const filtered = filterByProfile(sweeps, selectedProfile);
+  const models = uniqueModelIds(sweeps);
+  const filtered = filterSweeps(sweeps, selectedProfile, selectedModel);
   const refCfg = refConfig(sweeps, referenceId);
 
   const comparisonOptions = filtered.map((s) => ({
@@ -66,7 +72,7 @@ export function CustomerView({
           spreadsheet columns.
         </p>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <label className="text-sm text-slate-300">
             Min gen speed (tok/s/user)
             <input
@@ -96,7 +102,7 @@ export function CustomerView({
               }
             />
           </label>
-          <label className="text-sm text-slate-300 sm:col-span-2">
+          <label className="text-sm text-slate-300">
             Traffic profile filter
             <select
               className="mt-1 w-full rounded-lg border border-cerebras-border bg-cerebras-dark px-3 py-2"
@@ -114,11 +120,29 @@ export function CustomerView({
               ))}
             </select>
           </label>
+          <label className="text-sm text-slate-300">
+            Model filter
+            <select
+              className="mt-1 w-full rounded-lg border border-cerebras-border bg-cerebras-dark px-3 py-2"
+              value={selectedModel}
+              onChange={(e) => {
+                const v = e.target.value;
+                onModel(v === "all" ? "all" : v);
+              }}
+            >
+              <option value="all">All models</option>
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  Model {m}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </section>
 
       {filtered.length === 0 ? (
-        <p className="text-slate-400">No sweeps match this profile filter.</p>
+        <p className="text-slate-400">No sweeps match the current filters.</p>
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

@@ -40,6 +40,7 @@ export function PerfDashboard() {
   const [reports, setReports] = useState<FileParseReport[]>([]);
   const [thresholds, setThresholds] = useState(DEFAULT_THRESHOLDS);
   const [selectedProfile, setSelectedProfile] = useState<number | "all">("all");
+  const [selectedModel, setSelectedModel] = useState<string | "all">("all");
   const [sharedComparisonRef, setSharedComparisonRef] = useState<string | null>(
     null
   );
@@ -56,6 +57,7 @@ export function PerfDashboard() {
         setView(state.view);
         setThresholds(state.thresholds);
         setSelectedProfile(state.selectedProfile);
+        setSelectedModel(state.selectedModel ?? "all");
         setSharedComparisonRef(state.referenceId);
         setLoading(false);
         setHydrated(true);
@@ -151,6 +153,7 @@ export function PerfDashboard() {
     view,
     thresholds,
     selectedProfile,
+    selectedModel,
     referenceId: null,
     sweeps,
   };
@@ -223,12 +226,14 @@ export function PerfDashboard() {
           <DashboardToolbar
             sweeps={sweeps}
             selectedProfile={selectedProfile}
+            selectedModel={selectedModel}
             shareState={shareState}
           />
 
           <ComparisonCharts
             sweeps={sweeps}
             selectedProfile={selectedProfile}
+            selectedModel={selectedModel}
           />
 
           {view === "customer" ? (
@@ -238,6 +243,8 @@ export function PerfDashboard() {
               onThresholds={setThresholds}
               selectedProfile={selectedProfile}
               onProfile={setSelectedProfile}
+              selectedModel={selectedModel}
+              onModel={setSelectedModel}
               initialReferenceId={sharedComparisonRef}
             />
           ) : (
@@ -245,6 +252,8 @@ export function PerfDashboard() {
               sweeps={sweeps}
               selectedProfile={selectedProfile}
               onProfile={setSelectedProfile}
+              selectedModel={selectedModel}
+              onModel={setSelectedModel}
             />
           )}
         </>

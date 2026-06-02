@@ -6,6 +6,7 @@ export type DashboardShareState = {
   view: ViewMode;
   thresholds: CustomerThresholds;
   selectedProfile: number | "all";
+  selectedModel?: string | "all";
   referenceId: string | null;
   sweeps: PerfSweep[];
 };

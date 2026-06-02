@@ -13,15 +13,20 @@ import {
 } from "recharts";
 import type { PerfSweep } from "@/lib/types";
 import { primaryConfig } from "@/lib/parsePerfXlsx";
-import { filterByProfile } from "@/lib/compare";
+import { filterSweeps } from "@/lib/compare";
 
 type Props = {
   sweeps: PerfSweep[];
   selectedProfile: number | "all";
+  selectedModel: string | "all";
 };
 
-export function ComparisonCharts({ sweeps, selectedProfile }: Props) {
-  const filtered = filterByProfile(sweeps, selectedProfile);
+export function ComparisonCharts({
+  sweeps,
+  selectedProfile,
+  selectedModel,
+}: Props) {
+  const filtered = filterSweeps(sweeps, selectedProfile, selectedModel);
   if (filtered.length < 2) return null;
 
   const data = filtered.map((s) => {

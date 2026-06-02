@@ -10,6 +10,29 @@ export function filterByProfile(
     : sweeps.filter((s) => s.profile === selectedProfile);
 }
 
+export function filterByModel(
+  sweeps: PerfSweep[],
+  selectedModel: string | "all"
+): PerfSweep[] {
+  return selectedModel === "all"
+    ? sweeps
+    : sweeps.filter((s) => s.modelId === selectedModel);
+}
+
+export function filterSweeps(
+  sweeps: PerfSweep[],
+  selectedProfile: number | "all",
+  selectedModel: string | "all"
+): PerfSweep[] {
+  return filterByModel(filterByProfile(sweeps, selectedProfile), selectedModel);
+}
+
+export function uniqueModelIds(sweeps: PerfSweep[]): string[] {
+  return [...new Set(sweeps.map((s) => s.modelId))].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true })
+  );
+}
+
 export function pctDelta(value: number, ref: number): number | null {
   if (!Number.isFinite(ref) || ref === 0) return null;
   return ((value - ref) / ref) * 100;

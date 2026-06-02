@@ -3,12 +3,14 @@
 import type { PerfSweep } from "@/lib/types";
 import { fmtNum, workloadLabel } from "@/lib/format";
 import { profileLabel } from "@/lib/profiles";
-import { filterByProfile } from "@/lib/compare";
+import { filterSweeps, uniqueModelIds } from "@/lib/compare";
 
 type Props = {
   sweeps: PerfSweep[];
   selectedProfile: number | "all";
   onProfile: (p: number | "all") => void;
+  selectedModel: string | "all";
+  onModel: (m: string | "all") => void;
 };
 
 function heatColor(value: number | null, min: number, max: number): string {
@@ -18,12 +20,19 @@ function heatColor(value: number | null, min: number, max: number): string {
   return `hsl(${hue} 70% 35%)`;
 }
 
-export function EngineerView({ sweeps, selectedProfile, onProfile }: Props) {
+export function EngineerView({
+  sweeps,
+  selectedProfile,
+  onProfile,
+  selectedModel,
+  onModel,
+}: Props) {
   const profiles = [
     ...new Set(sweeps.map((s) => s.profile).filter((p): p is number => p != null)),
   ].sort((a, b) => a - b);
+  const models = uniqueModelIds(sweeps);
 
-  const filtered = filterByProfile(sweeps, selectedProfile);
+  const filtered = filterSweeps(sweeps, selectedProfile, selectedModel);
   const showLegacyCols = filtered.some((s) =>
     s.configs.some((c) => c.gMethod || c.targetPromptG)
   );
@@ -35,24 +44,44 @@ export function EngineerView({ sweeps, selectedProfile, onProfile }: Props) {
         <p className="mt-1 text-sm text-slate-400">
           Full config matrix, G×context speed table, and simulation variance flags.
         </p>
-        <label className="mt-4 block text-sm text-slate-300">
-          Profile filter
-          <select
-            className="mt-1 w-full max-w-md rounded-lg border border-cerebras-border bg-cerebras-dark px-3 py-2"
-            value={String(selectedProfile)}
-            onChange={(e) => {
-              const v = e.target.value;
-              onProfile(v === "all" ? "all" : Number(v));
-            }}
-          >
-            <option value="all">All profiles</option>
-            {profiles.map((p) => (
-              <option key={p} value={p}>
-                {profileLabel(p)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm text-slate-300">
+            Traffic profile filter
+            <select
+              className="mt-1 w-full rounded-lg border border-cerebras-border bg-cerebras-dark px-3 py-2"
+              value={String(selectedProfile)}
+              onChange={(e) => {
+                const v = e.target.value;
+                onProfile(v === "all" ? "all" : Number(v));
+              }}
+            >
+              <option value="all">All profiles</option>
+              {profiles.map((p) => (
+                <option key={p} value={p}>
+                  {profileLabel(p)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm text-slate-300">
+            Model filter
+            <select
+              className="mt-1 w-full rounded-lg border border-cerebras-border bg-cerebras-dark px-3 py-2"
+              value={selectedModel}
+              onChange={(e) => {
+                const v = e.target.value;
+                onModel(v === "all" ? "all" : v);
+              }}
+            >
+              <option value="all">All models</option>
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  Model {m}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </section>
 
       {filtered.map((sweep) => {
